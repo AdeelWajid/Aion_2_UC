@@ -1,0 +1,74 @@
+# Build outputs
+build/
+out/
+bin/
+obj/
+*.obj
+*.o
+*.exe
+*.dll
+*.lib
+*.a
+*.pdb
+*.ilk
+*.exp
+*.idb
+*.map
+*.iobj
+*.ipdb
+
+# MSVC / Visual Studio
+.vs/
+*.sln.docstates
+*.suo
+*.user
+*.userosscache
+*.VC.db
+*.VC.db-shm
+*.VC.db-wal
+*.VC.opendb
+ipch/
+*.aps
+*.ncb
+*.opensdf
+*.sdf
+*.cachefile
+*.opendb
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake-build-*/
+CMakeScripts/
+Testing/
+compile_commands.json
+CTestTestfile.cmake
+_deps/
+install_manifest.txt
+
+# Logs & local config
+*.log
+build_log.txt
+*.ini
+*.ini.bak
+*.cfg
+
+# OS
+.DS_Store
+Thumbs.db
+Desktop.ini
+ehthumbs.db
+
+# Editors / IDEs
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+*.code-workspace
+
+# Misc
+*.tmp
+*.temp
+*.bak
+*.old
