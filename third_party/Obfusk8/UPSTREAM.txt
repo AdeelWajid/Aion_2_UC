@@ -1,0 +1,9 @@
+repo    https://github.com/x86byte/Obfusk8
+commit  e08825b2897aa31ac5b8b28f6cd80844a905bc9f
+date    2026-06-25
+fetch   2026-10-07
+
+Vendored rather than cloned: the release build includes Obfusk8/Instrumentation/.../Obfusk8Core.hpp,
+and a build that needs the network is a build that breaks on a plane. See build.bat for the two
+optimisation settings the two obfuscated translation units need (they differ, and both matter), and
+the README section "Obfuscation (Obfusk8)" for what is and is not hidden.

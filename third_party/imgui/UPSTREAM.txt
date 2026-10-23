@@ -1,0 +1,26 @@
+repo    https://github.com/ocornut/imgui
+tag     v1.91.9b  (zip of tag codeload.github.com/ocornut/imgui/zip/refs/tags/v1.91.9b)
+date    2024-12-30
+fetch   2026-10-08
+
+Vendored rather than cloned, for the same reason Obfusk8 is: a build that needs the network is a
+build that breaks on a plane.
+
+Included, and nothing else:
+  core       imgui.cpp imgui_draw.cpp imgui_tables.cpp imgui_widgets.cpp imgui.h imconfig.h
+             imgui_internal.h imstb_rectpack.h imstb_textedit.h imstb_truetype.h
+  backends/  imgui_impl_dx11.{h,cpp} imgui_impl_win32.{h,cpp}
+  LICENSE.txt
+
+Deliberately absent:
+  imgui_demo.cpp        the demo window and its ~3,000 lines of example code are not shipped
+  backends/ everything else (vulkan, glfw, osx, sdl, ...)
+  misc/ fonts/ examples/ docs/ CI
+
+No local deviation from upstream. The files above are byte-identical to the tag.
+
+One thing worth recording, because it looks like it should need a patch and does not: the DX11
+backend's blend state already writes the alpha channel with SrcBlendAlpha = ONE (see
+imgui_impl_dx11.cpp, the D3D11_BLEND_DESC setup), which is what this overlay needs - it presents a
+premultiplied-alpha layered window, and SRC_ALPHA on the alpha channel would square it and darken
+every translucent pixel. So a future re-vendor is a straight file replacement.
