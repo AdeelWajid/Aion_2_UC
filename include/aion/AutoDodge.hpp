@@ -72,10 +72,6 @@ private:
     int last_anim_ = 0;
     bool last_test_focus_ok_ = false;
     const char* last_input_backend_ = nullptr;
-    bool held_urge_ = false;
-    std::string held_urge_reason_text_;
-    const char* held_urge_reason_ = nullptr;
-    std::chrono::steady_clock::time_point held_urge_at_{};
 };
 
 bool GameProcessInForeground(std::uint32_t game_pid, HWND game_hwnd, HWND overlay_hwnd);

@@ -205,10 +205,8 @@ inline const std::vector<IniComment>& IniCommentTable() {
                              "# GObjects a few seconds later) before giving up on the attach. Starting\n"
                              "# the overlay early is normal; 0 disables the wait.\n"},
         {"present_fps",
-         "# ESP update rate. -1 (default) = uncapped: present every frame, so the frame the\n"
-         "# compositor picks is never older than one iteration. 0 = follow the display's refresh\n"
-         "# rate (lighter on CPU; a 60 fps overlay on a 144 Hz panel visibly trails the camera).\n"
-         "# >0 = that many updates per second.\n"},
+         "# ESP update rate. 60 (default) = steady 60 Hz overlay. 0 = match the display refresh.\n"
+         "# -1 = uncapped (max freshness, higher CPU). >0 = that many updates per second.\n"},
         {"overlay_dcomp",
          "# GPU composition present path (fast). 0 forces the UpdateLayeredWindow fallback.\n"},
         {"overlay_vsync", "# Block in Present until vblank (0 = lowest latency).\n"},

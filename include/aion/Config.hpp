@@ -95,12 +95,8 @@ struct Config {
     bool text_shadow = true;  // 1px black drop shadow behind labels
 
     // ESP update rate. <0 (default) = uncapped, present every frame; 0 = follow the display's
-    // refresh rate; >0 = that many updates per second. Uncapped is the default because the ESP is
-    // drawn into our own window: any cap below the display rate leaves every box that much behind
-    // a world that updates every 6.9 ms on a 144 Hz panel. Note that presenting faster than the
-    // panel cannot show more frames - it keeps the frame DWM picks as fresh as possible, at the
-    // cost of running the loop (and therefore the memory reads) flat out.
-    int present_fps = -1;
+    // ESP loop rate: 60 default (smooth, steady CPU). 0 = match display refresh; -1 = uncapped.
+    int present_fps = 60;
     // GPU composition present path (fast). Disable to force UpdateLayeredWindow.
     bool overlay_dcomp = true;
     // Block in the swap-chain Present until vblank. Off keeps latency lowest.
@@ -211,7 +207,7 @@ struct Config {
     int auto_dodge_scan_period_ms = 120;
     bool auto_dodge_projectiles = true;
     bool auto_dodge_ui_objects = false;
-    bool auto_dodge_anim_flags = true;
+    bool auto_dodge_anim_flags = false;
     std::string auto_dodge_class_hints =
         "Telegraph,Dodge,BlockWindow,Counter,Parry,Evade,Warning,HitZone";
     std::string auto_dodge_anim_props =

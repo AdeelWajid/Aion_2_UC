@@ -141,11 +141,9 @@ int aion::RunOverlay(int argc, char** argv) {
             dm.dmDisplayFrequency > 1)
             display_hz = static_cast<int>(dm.dmDisplayFrequency);
     }
-    const int present_fps = cfg.present_fps > 0 ? cfg.present_fps
-                                                : (cfg.present_fps == 0
-                                                       ? (display_hz > 0 ? display_hz : 60)
-                                                       : -1);
-    gfx.set_present_fps(present_fps > 0 ? present_fps : 0);
+    const int present_fps = app::ResolvePresentFps(cfg, display_hz);
+    // Frame loop owns pacing; always present each EndFrame (no second cap in ULW path).
+    gfx.set_present_fps(0);
     gfx.set_vsync(cfg.overlay_vsync);
     AION_INFO("present rate: %s (display %d Hz, config present_fps=%d)",
               present_fps > 0 ? (std::to_string(present_fps) + " fps").c_str() : "every frame",

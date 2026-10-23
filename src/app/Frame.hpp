@@ -71,5 +71,8 @@ struct FrameContext {
 // Runs until the overlay is asked to quit, or until a soak/capture run has finished.
 void RunFrameLoop(FrameContext& fc);
 
+// present_fps: >0 cap, 0 = display refresh (display_hz, else 60), <0 uncapped.
+int ResolvePresentFps(const Config& cfg, int display_hz);
+
 }  // namespace app
 }  // namespace aion

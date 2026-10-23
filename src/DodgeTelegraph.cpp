@@ -18,6 +18,16 @@ namespace {
 constexpr i32 kObjectScanBudget = 5000;
 constexpr i32 kProjectileScanBudget = 12000;
 
+// Class name only — matching actor *names* caught telegraph widgets and scenery (spam).
+bool IsProjectileClass(const std::string& cls) { return HasI(cls, "Projectile"); }
+
+bool InRangeSq(const FVector& a, const FVector& b, double max_sq) {
+    const double dx = a.X - b.X;
+    const double dy = a.Y - b.Y;
+    const double dz = a.Z - b.Z;
+    return dx * dx + dy * dy + dz * dz <= max_sq;
+}
+
 bool ActorLocation(Sdk* sdk, addr_t actor, FVector& out) {
     if (!sdk || !actor) return false;
     const addr_t root = sdk->ptr(actor + off::aactor::RootComponent);
@@ -60,7 +70,7 @@ void DodgeTelegraphScanner::PruneProjectileSet(Sdk* sdk, const Config& cfg,
             it = projectiles_in_range_.erase(it);
             continue;
         }
-        if (!HasI(uo.GetClassName(), "Projectile")) {
+        if (!IsProjectileClass(uo.GetClassName())) {
             it = projectiles_in_range_.erase(it);
             continue;
         }
@@ -69,20 +79,16 @@ void DodgeTelegraphScanner::PruneProjectileSet(Sdk* sdk, const Config& cfg,
             it = projectiles_in_range_.erase(it);
             continue;
         }
-        const double dx = loc.X - origin.X;
-        const double dy = loc.Y - origin.Y;
-        const double dz = loc.Z - origin.Z;
-        if (dx * dx + dy * dy + dz * dz > max_sq)
+        if (!InRangeSq(loc, origin, max_sq))
             it = projectiles_in_range_.erase(it);
         else
             ++it;
     }
+    if (projectiles_in_range_.empty()) last_projectile_count_ = 0;
 }
 
 void DodgeTelegraphScanner::ScanProjectilesSlice(Sdk* sdk, const Config& cfg,
-                                                 const FVector& origin, int* count_out,
-                                                 bool* urge_out) {
-    *count_out = (int)projectiles_in_range_.size();
+                                                 const FVector& origin, bool* urge_out) {
     *urge_out = false;
     if (!sdk || !cfg.auto_dodge_projectiles || !sdk->objects.ok()) return;
 
@@ -92,7 +98,6 @@ void DodgeTelegraphScanner::ScanProjectilesSlice(Sdk* sdk, const Config& cfg,
     if (n <= 0) {
         projectiles_in_range_.clear();
         last_projectile_count_ = 0;
-        *count_out = 0;
         return;
     }
 
@@ -103,24 +108,22 @@ void DodgeTelegraphScanner::ScanProjectilesSlice(Sdk* sdk, const Config& cfg,
         if (!o) continue;
         UObject uo(sdk, o);
         if (!uo.IsValid() || uo.IsGarbage()) continue;
-        if (!HasI(uo.GetClassName(), "Projectile")) continue;
+        if (!IsProjectileClass(uo.GetClassName())) continue;
         FVector loc;
         if (!ActorLocation(sdk, o, loc)) continue;
-        const double dx = loc.X - origin.X;
-        const double dy = loc.Y - origin.Y;
-        const double dz = loc.Z - origin.Z;
-        if (dx * dx + dy * dy + dz * dz <= max_sq) projectiles_in_range_.insert(o);
+        if (!InRangeSq(loc, origin, max_sq)) continue;
+        // Urge only when a new in-range projectile actor appears (not on re-scan of the same set).
+        if (projectiles_in_range_.insert(o).second) *urge_out = true;
     }
     projectile_cursor_ = (projectile_cursor_ + step) % n;
-    if (projectile_cursor_ == 0) PruneProjectileSet(sdk, cfg, origin);
-
-    const int count = (int)projectiles_in_range_.size();
-    *count_out = count;
-    if (count > last_projectile_count_) *urge_out = true;
-    if (count == 0)
-        last_projectile_count_ = 0;
-    else
-        last_projectile_count_ = count;
+    if (projectile_cursor_ == 0) {
+        PruneProjectileSet(sdk, cfg, origin);
+        const int count = (int)projectiles_in_range_.size();
+        if (count == 0)
+            last_projectile_count_ = 0;
+        else
+            last_projectile_count_ = count;
+    }
 }
 
 void DodgeTelegraphScanner::ScanObjectSliceUi(Sdk* sdk, const Config& cfg, int* ui_out) {
@@ -147,6 +150,7 @@ void DodgeTelegraphScanner::ScanObjectSliceUi(Sdk* sdk, const Config& cfg, int* 
 bool DodgeTelegraphScanner::ScanAnimFlags(Sdk* sdk, Reflection* refl, addr_t pawn,
                                           const Config& cfg) {
     if (!sdk || !refl || !pawn || !cfg.auto_dodge_anim_flags) return false;
+    if (!UObject(sdk, pawn).IsValid()) return false;
     const addr_t mesh = sdk->ptr(pawn + off::acharacter::Mesh);
     if (!sdk->mem->valid_ptr(mesh)) return false;
     const addr_t comp_class = sdk->ptr(mesh + off::uobject::Class);
@@ -194,10 +198,8 @@ TelegraphReading DodgeTelegraphScanner::Scan(Sdk* sdk, Reflection* refl, const C
         }
         prev_anim_hot_ = anim_hot;
 
-        int proj_count = 0;
         bool proj_urge = false;
-        ScanProjectilesSlice(sdk, cfg, origin, &proj_count, &proj_urge);
-        r.projectiles_near = proj_count;
+        ScanProjectilesSlice(sdk, cfg, origin, &proj_urge);
         if (proj_urge) {
             r.urge = true;
             urge_reason_buf_ = "projectile";
@@ -222,11 +224,11 @@ TelegraphReading DodgeTelegraphScanner::Scan(Sdk* sdk, Reflection* refl, const C
             r.ui_matches = last_ui_matches_;
         }
     } else {
-        r.projectiles_near = (int)projectiles_in_range_.size();
         r.ui_matches = last_ui_matches_;
         r.anim_props_hot = prev_anim_hot_ ? 1 : 0;
     }
 
+    r.projectiles_near = (int)projectiles_in_range_.size();
     return r;
 }
 

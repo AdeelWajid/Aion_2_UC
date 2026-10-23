@@ -616,8 +616,8 @@ void Menu::SectionAutoDodge() {
     if (trig < 0 || trig > 3) trig = 3;
     if (ImGui::Combo("Trigger", &trig, triggers, 4)) cfg_->auto_dodge_trigger = trig;
     ImGui::TextDisabled(
-        "Dodges on attack edges only (projectile enters range, UI spike, anim flag). "
-        "Turn off Dodge UI objects if it spam-dodges — UI hints match always-on widgets.");
+        "Projectile class + optional anim/UI edges only (no level-wide telegraph scan). "
+        "Keep Anim flags off unless tuned; UI objects off unless --scan-dodge.");
     SliderRow("Range m", &cfg_->auto_dodge_range_m, 4.f, 40.f, "%.0f m");
     ImGui::SetNextItemWidth(120.f);
     ImGui::InputInt("Scan period ms", &cfg_->auto_dodge_scan_period_ms);
@@ -921,7 +921,7 @@ void Menu::SectionDisplay() {
     Hint("On, the size above is the size at 1080p and a taller frame rasterizes it larger (1440p "
          "x1.33, 4K x2), never smaller. Off pins every client to the size above.");
     IntSlider("Update rate", &cfg_->present_fps, -1, 240, "%d");
-    Hint("-1 presents every frame, 0 follows the display's refresh rate, a positive number is a cap.");
+    Hint("Default 60. 0 = display Hz, -1 = uncapped. Lower jitter than uncapped on most PCs.");
 
     ImGui::Checkbox("VSync", &cfg_->overlay_vsync);
     ImGui::Checkbox("GPU composition", &cfg_->overlay_dcomp);

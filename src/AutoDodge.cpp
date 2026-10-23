@@ -153,12 +153,6 @@ void AutoDodge::Tick(const TickArgs& args) {
     }
 
     const auto now = std::chrono::steady_clock::now();
-    constexpr int kHeldUrgeMs = 1500;
-    if (held_urge_) {
-        const auto held_ms = std::chrono::duration_cast<std::chrono::milliseconds>(now - held_urge_at_)
-                                 .count();
-        if (held_ms > kHeldUrgeMs) held_urge_ = false;
-    }
 
     bool signal = false;
     const char* reason = nullptr;
@@ -186,23 +180,7 @@ void AutoDodge::Tick(const TickArgs& args) {
         cooldown_ok = since >= args.cfg->auto_dodge_cooldown_ms;
     }
 
-    const bool can_send = CanSend(args);
-    if (signal && (!can_send || !cooldown_ok)) {
-        held_urge_ = true;
-        held_urge_reason_text_ =
-            reason ? reason : (tr.reason ? tr.reason : std::string("telegraph"));
-        held_urge_reason_ = held_urge_reason_text_.c_str();
-        held_urge_at_ = now;
-    }
-
-    bool fire = signal && can_send && cooldown_ok;
-    if (!fire && held_urge_ && can_send && cooldown_ok) {
-        fire = true;
-        reason = held_urge_reason_text_.empty() ? "telegraph" : held_urge_reason_;
-    }
-    if (!fire) return;
-
-    held_urge_ = false;
+    if (!signal || !CanSend(args) || !cooldown_ok) return;
     if (args.game_hwnd && !GameProcessHasForeground(args.game_hwnd))
         FocusGameForKeyboard(args.game_hwnd);
     Fire((WORD)args.cfg->auto_dodge_vk, (WORD)args.cfg->auto_dodge_move_vk, input_method,

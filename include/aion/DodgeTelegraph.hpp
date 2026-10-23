@@ -34,15 +34,14 @@ private:
     int last_projectile_count_ = 0;
     bool prev_anim_hot_ = false;
     std::string last_anim_prop_;
+    std::string urge_reason_buf_;
     i32 object_cursor_ = 0;
     i32 projectile_cursor_ = 0;
     bool slice_pass_complete_ = false;
     int ui_pass_accum_ = 0;
     std::unordered_set<addr_t> projectiles_in_range_;
-    std::string urge_reason_buf_;
     bool ScanAnimFlags(Sdk* sdk, Reflection* refl, addr_t pawn, const Config& cfg);
-    void ScanProjectilesSlice(Sdk* sdk, const Config& cfg, const FVector& origin, int* count_out,
-                              bool* urge_out);
+    void ScanProjectilesSlice(Sdk* sdk, const Config& cfg, const FVector& origin, bool* urge_out);
     void ScanObjectSliceUi(Sdk* sdk, const Config& cfg, int* ui_out);
     void PruneProjectileSet(Sdk* sdk, const Config& cfg, const FVector& origin);
     static void SplitCsv(const std::string& csv, std::vector<std::string>& out);

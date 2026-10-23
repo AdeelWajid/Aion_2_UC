@@ -40,6 +40,34 @@
 
 namespace aion {
 namespace app {
+namespace {
+
+void PaceFrame(std::chrono::steady_clock::time_point frame_start, int hz) {
+    if (hz <= 0) return;
+    const double target_ms = 1000.0 / static_cast<double>(hz);
+    for (;;) {
+        const double spent = std::chrono::duration<double, std::milli>(
+                                 std::chrono::steady_clock::now() - frame_start)
+                                 .count();
+        const double rest = target_ms - spent;
+        if (rest <= 0.05) return;
+        if (rest > 2.5)
+            std::this_thread::sleep_for(
+                std::chrono::duration<double, std::milli>(rest - 1.5));
+        else if (rest > 0.5)
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        else
+            std::this_thread::yield();
+    }
+}
+
+}  // namespace
+
+int ResolvePresentFps(const Config& cfg, int display_hz) {
+    if (cfg.present_fps > 0) return cfg.present_fps;
+    if (cfg.present_fps == 0) return display_hz > 0 ? display_hz : 60;
+    return -1;
+}
 
 void RunFrameLoop(FrameContext& fc) {
     Sdk& sdk = fc.sdk;
@@ -225,6 +253,7 @@ void RunFrameLoop(FrameContext& fc) {
             if (!cfg.name_rules_seen) cfg.name_rules = NameTable::ImportRules(cfg.names_file);
             names.SetRules(cfg.name_rules);
             menu.on_font_changed();
+            fc.present_fps = ResolvePresentFps(cfg, fc.display_hz);
             const std::size_t nboss = cache.rules().boss.size();
             const std::size_t ntarget = cache.rules().target.size();
             const bool restart_only = cfg.overlay_dcomp != fc.dcomp_at_start ||
@@ -600,18 +629,8 @@ void RunFrameLoop(FrameContext& fc) {
         gfx.EndFrame();
 
         ++frames_since_log;
-        // No artificial pacing by default (fc.present_fps < 0): the ESP presents as fast as the
-        // pipeline allows, so the frame DWM composites is never older than one iteration. A rate
-        // from aion.ini still paces it here - >0 that many per second, 0 the display's rate.
-        if (fc.present_fps > 0) {
-            const double spent = std::chrono::duration<double, std::milli>(
-                                     std::chrono::steady_clock::now() - frame_start).count();
-            const double target = 1000.0 / fc.present_fps;
-            const double rest = target - spent - 0.7;  // SleepFor overshoots slightly
-            if (rest > 0.2)
-                std::this_thread::sleep_for(
-                    std::chrono::duration<double, std::milli>(rest));
-        }
+        fc.present_fps = ResolvePresentFps(cfg, fc.display_hz);
+        PaceFrame(frame_start, fc.present_fps);
     }
 
     // One summary at exit. The per-second line reports the running state; this reports what the
