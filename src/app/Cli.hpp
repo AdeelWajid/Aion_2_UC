@@ -44,6 +44,7 @@ struct Options {
     std::vector<std::string> dump_filters;
     std::string scan_objects_substr, dump_raw_substr, dump_struct_substr, find_row_substr;
     std::string gates_substr;   // --dump-gates: actor-class substring to report on
+    bool scan_dodge_mode = false;  // --scan-dodge: dodge telegraph discovery report
     int scan_samples = 6;       // 0 = list every matching object instead of per-class samples
     int dump_count = 3, dump_skip = 0;  // how many actors per --dump-props filter, and skip
     int dump_comps = 8;                 // how many components to dump per actor

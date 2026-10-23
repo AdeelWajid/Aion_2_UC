@@ -24,7 +24,9 @@
 #include "app/Launch.hpp"
 #include "app/Modes.hpp"
 #include "app/Window.hpp"
+#include "aion/AutoDodge.hpp"
 #include "aion/Config.hpp"
+#include "aion/Reflection.hpp"
 #include "aion/DataFile.hpp"
 #include "aion/DefaultIni.hpp"
 #include "aion/EntityCache.hpp"
@@ -248,10 +250,13 @@ int aion::RunOverlay(int argc, char** argv) {
     menu.on_save_ini = [&] { cfg.save_config = true; };
     menu.on_reload_ini = [&] { cfg.reload_config = true; };
     menu.on_dump_classes = [&] { cfg.dump_classes = true; };
+    AutoDodge auto_dodge;
+    menu.on_auto_dodge_test = [&] { auto_dodge.RequestTest(); };
     bool rules_dirty = false;
     menu.on_rules_changed = [&] { rules_dirty = true; };
     for (int i = 1; i < argc; ++i)
         if (std::string(argv[i]) == "--menu") menu.Toggle();
+    Reflection refl(&sdk);
     CameraExtractor camx(&sdk);
     Projection proj;
     EntityCache cache;
@@ -351,9 +356,9 @@ int aion::RunOverlay(int argc, char** argv) {
     // The frame loop: read -> update the entity list -> republish the camera -> draw it.
     // src/app/Frame.hpp states the order and why it matters.
     app::FrameContext frame_ctx{sdk,  mem,         cfg,       camx,        proj,
-                                cache, names,      menu,      imgui,       gfx,
-                                overlay, pid,      opt,       present_fps, display_hz,
-                                dcomp_at_start, vsync_at_start,
+                                cache, names,      menu,      auto_dodge,  refl,
+                                imgui, gfx,        overlay,   pid,         opt,
+                                present_fps, display_hz, dcomp_at_start, vsync_at_start,
                                 rules_dirty, apply_rules};
     AION_SECTION("session");
     app::RunFrameLoop(frame_ctx);

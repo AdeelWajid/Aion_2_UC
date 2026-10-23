@@ -17,7 +17,9 @@
 
 #include "Client.hpp"      // DumpActorClasses
 #include "Window.hpp"      // ShouldQuit, FindGameWindow, GameClientRect, FontsFromConfig
+#include "aion/AutoDodge.hpp"
 #include "aion/Camera.hpp"
+#include "aion/Reflection.hpp"
 #include "aion/Config.hpp"
 #include "aion/DataFile.hpp"
 #include "aion/EntityCache.hpp"
@@ -48,6 +50,8 @@ void RunFrameLoop(FrameContext& fc) {
     EntityCache& cache = fc.cache;
     NameTable& names = fc.names;
     Menu& menu = fc.menu;
+    AutoDodge& auto_dodge = fc.auto_dodge;
+    Reflection& refl = fc.refl;
     ImGuiLayer& imgui = fc.imgui;
     D3D11Overlay& gfx = fc.gfx;
     HWND overlay = fc.overlay;
@@ -96,6 +100,23 @@ void RunFrameLoop(FrameContext& fc) {
             if (!found) { AION_INFO("game window gone; exiting"); break; }
             game_hwnd = found;
         }
+        // INSERT is polled globally (the overlay is click-through while playing). This must run
+        // before the idle continue: when the game is unfocused the loop skips the rest of the
+        // iteration and INSERT would never be seen, so the menu could not be opened from a hidden
+        // overlay or recovered without restarting.
+        {
+            static bool insert_down = false;
+            const bool insert_now = (GetAsyncKeyState(VK_INSERT) & 0x8000) != 0;
+            if (insert_now && !insert_down) menu.Toggle();
+            insert_down = insert_now;
+        }
+        if (menu.request_close) {
+            menu.request_close = false;
+            menu.Close();
+        }
+        imgui.set_game_window(game_hwnd);
+        imgui.SetInteractive(menu.Open());
+
         RECT gr{};
         // While the menu is open the window stops following the client. Taking the foreground from a
         // fullscreen client makes it switch display mode, its rect changes, and re-sizing our window
@@ -175,22 +196,6 @@ void RunFrameLoop(FrameContext& fc) {
         };
         read_pose();
 
-        // INSERT is polled, never received: while playing the window is click-through and cannot
-        // take focus, so a menu that waited for WM_KEYDOWN would never open. The window's own
-        // interactive state is set from the menu on every path out of it - INSERT, Esc, the
-        // window's X, or --menu at startup - so all four behave identically.
-        {
-            static bool insert_down = false;
-            const bool insert_now = (GetAsyncKeyState(VK_INSERT) & 0x8000) != 0;
-            if (insert_now && !insert_down) menu.Toggle();
-            insert_down = insert_now;
-        }
-        if (menu.request_close) {
-            menu.request_close = false;
-            menu.Close();
-        }
-        imgui.SetInteractive(menu.Open());
-        imgui.set_game_window(game_hwnd);
         // A list, a class pattern, a colour or a name rule changed in the menu: rebuild the
         // classifier and drop the per-actor metadata, or the new rule would only reach each actor
         // when it next came up for revalidation - up to a full sweep, which reads as a rule that
@@ -325,6 +330,37 @@ void RunFrameLoop(FrameContext& fc) {
             t_phase1 = std::chrono::steady_clock::now();
             const int drawn = last_drawn =
                 EspRenderer().RenderEntities(gfx, cam, cache.Entities(), cfg);
+            if (cfg.auto_dodge && !menu.Open()) {
+                bool hp_low = false;
+                bool hp_low_known = false;
+                for (const auto& e : cache.Entities()) {
+                    if (!e.LocalPlayer) continue;
+                    hp_low = e.LowHealth;
+                    hp_low_known = e.LowHealthKnown;
+                    break;
+                }
+                FVector dodge_origin = cam.Location;
+                for (const auto& e : cache.Entities()) {
+                    if (e.LocalPlayer) {
+                        dodge_origin = e.Location;
+                        break;
+                    }
+                }
+                AutoDodge::TickArgs ad;
+                ad.cfg = &cfg;
+                ad.sdk = &sdk;
+                ad.refl = &refl;
+                ad.local_pawn = pawn;
+                ad.origin = dodge_origin;
+                ad.menu_open = menu.Open();
+                ad.game_in_front = GameProcessInForeground(pid, game_hwnd, overlay);
+                ad.game_pid = pid;
+                ad.game_hwnd = game_hwnd;
+                ad.overlay_hwnd = overlay;
+                ad.hp_low = hp_low;
+                ad.hp_low_known = hp_low_known;
+                auto_dodge.Tick(ad);
+            }
             // The local player's own HP/MP, when asked for: read once per frame (a handful of reads
             // through the client's own HUD bar, see SelfBars.hpp) and drawn from the last known value,
             // so a frame that failed to read shows what was there before with a '?' rather than
@@ -443,12 +479,63 @@ void RunFrameLoop(FrameContext& fc) {
                 if (e.OnScreen) ++ms.per_category_onscreen[(int)e.Type];
                 if (e.Target) ++ms.targets;
             }
+            {
+                const AutoDodgeStats ads = auto_dodge.Stats();
+                ms.auto_dodge_fires = ads.fires;
+                ms.auto_dodge_ms_since = ads.ms_since_last;
+                ms.auto_dodge_last = ads.last_reason;
+                ms.auto_dodge_proj = ads.telegraph_projectiles;
+                ms.auto_dodge_ui = ads.telegraph_ui;
+                ms.auto_dodge_anim = ads.telegraph_anim;
+                ms.auto_dodge_input = ads.last_input_backend;
+            }
             menu.set_stats(ms);
         }
         // Only while open: a closed menu costs nothing, not even ImGui's own bookkeeping. The
         // drawing itself happens later, inside D3D11Overlay::EndFrame, through the layer's
         // pre-present hook - that is what puts both passes in the same surface.
         if (menu.Open() && imgui.Active()) {
+            // Run on the frame after the click, before BeginFrame reclaims focus for the menu.
+            if (auto_dodge.HasPendingTest()) {
+                imgui.DeferForegroundReclaim(4500);
+                FVector dodge_origin = cam.Location;
+                if (cam.valid) {
+                    for (const auto& e : cache.Entities()) {
+                        if (e.LocalPlayer) {
+                            dodge_origin = e.Location;
+                            break;
+                        }
+                    }
+                }
+                AutoDodge::TickArgs ad;
+                ad.cfg = &cfg;
+                ad.sdk = &sdk;
+                ad.refl = &refl;
+                ad.local_pawn = pawn;
+                ad.origin = dodge_origin;
+                ad.menu_open = true;
+                ad.game_in_front = GameProcessInForeground(pid, game_hwnd, overlay);
+                ad.game_pid = pid;
+                ad.game_hwnd = game_hwnd;
+                ad.overlay_hwnd = overlay;
+                const unsigned fires_before = auto_dodge.Stats().fires;
+                auto_dodge.Tick(ad);
+                const AutoDodgeStats after = auto_dodge.Stats();
+                if (after.fires > fires_before) {
+                    const int vk = NormalizeDodgeVk(cfg.auto_dodge_vk);
+                    const int mv = cfg.auto_dodge_move_vk;
+                    char msg[260];
+                    const char* via = after.last_input_backend ? after.last_input_backend : "?";
+                    std::snprintf(msg, sizeof msg,
+                                  "Test sent %d+%d via %s, focus %s. If SendInput: install "
+                                  "FakerInput driver (CONFIG hint). Dodge in combat.",
+                                  vk, mv, via, after.last_test_focus_ok ? "yes" : "no");
+                    menu.SetStatus(msg);
+                } else {
+                    menu.SetStatus(
+                        "Test dodge: set Key (VK), e.g. 32=Space; could not focus game window.");
+                }
+            }
             imgui.BeginFrame();
             menu.BuildImGui(imgui);
         }

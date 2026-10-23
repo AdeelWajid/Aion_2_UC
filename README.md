@@ -43,6 +43,8 @@ External architecture using `ReadProcessMemory` for runtime inspection and a cus
 
 ```
 build\aion_recon.exe                 # validate offsets against the running game
+build\aion_recon.exe --verify        # attach, print VerifyOffsets, exit 0/4 (CI-friendly)
+build\aion_recon.exe --verify --wait 120   # wait up to 120s for in-world runtime objects
 build\aion_external.exe              # run the external overlay (INSERT toggles menu)
 build\aion_external.exe --menu       # start with the menu open
 build\aion_external.exe --capture out.bmp --frames 60   # headless self-test, saves a BMP
@@ -158,11 +160,11 @@ attempt and is not imported). What matters:
   the offset table.
   elevated game - the symptom is `err=5` on every ReadProcessMemory - so match the game's level,
   normally both as administrator or both not.
-* **Client build.** The offsets belong to one `AION2.exe`: the 2026-10-14 Steam patch,
-  156,590,880 bytes, sha256 `699f42cd…ddafd8`. The three revisions before it were 156,557,752 bytes
+* **Client build.** The offsets target one `AION2.exe`: the 2026-10-21 Steam patch,
+  156,609,312 bytes, sha256 `ce978f75…9b107`. The revision before it was 156,590,880 bytes
   (`3842fc51…aba953`, 10-09), 156,604,184 bytes (`d93b050d…37f1ba`, 10-07) and 156,554,016 bytes
   (`59d33a2d…a8ac21`). The overlay prints what it found, so compare one line instead of guessing:
-  `client: C:\...\AION2.exe (156590880 bytes; verified build is 156590880 bytes)`. A Steam update
+  `client: C:\...\AION2.exe (156609312 bytes; verified build is 156609312 bytes)`. A Steam update
   changes the size and the offsets must be re-derived on that machine; copying the whole `build\`
   folder does not carry the game. `tools\find_shift.py` is the re-derivation - it prints the
   candidates a patch left behind and validates `GWorld` structurally, but on 10-14 its "apply the
@@ -184,7 +186,7 @@ leave every global reading zero:
   `MZ=0x0000`, the reads are not reaching the client: run elevated and check that security
   software is not blocking `OpenProcess`/`ReadProcessMemory`. The `reader:` line carries the
   failed-open count and the Win32 error that caused it.
-* `client: ... (N bytes; verified build is 156590880 bytes)` — the build comparison.
+* `client: ... (N bytes; verified build is 156609312 bytes)` — the build comparison.
 * `verdict:` — which of the two it is.
 
 `NamePool ok` alone does not settle it: a cursor of 0 and a block of 0 are both legal, so an
@@ -824,7 +826,7 @@ first log lines:
   by ZixMatrix   read-only: no injection, no writes to the client
 ----------------------------------------------------------------------
   build        Oct  9 2026 15:51:23  |  MSVC 19.51.36243  |  C++20  |  Obfusk8
-  client       AION2.exe  |  verified build 156590880 bytes
+  client       AION2.exe  |  verified build 156609312 bytes
   config       D:\Games\aion2\build\aion.ini
   launched as  7Kq2mZpR4tVbN1xw.exe  (renamed at startup)
 ======================================================================
@@ -1012,7 +1014,9 @@ never guessed. `Supplied` = value from the task brief.
 
 ### Globals
 
-Current values are for the 2026-10-14 client (156,590,880 bytes), derived from the running client.
+Current globals target the 2026-10-21 client (156,609,312 bytes). Confirm them with
+`Sdk::VerifyOffsets()` / `build\aion_recon.exe` when reads reach the process — matching file size
+alone is not enough.
 The three data globals did **not** move by one shift this time: `GObjects` came out at 10-09 `+0xB000`,
 `GNames` at `+0xB180` and `GWorld` at `+0xB070`. The "one layout shift, apply it to everything"
 premise that the 10-07 (`+0x12000`) and the 10-09 (`-0x14000`) patches both satisfied is therefore not

@@ -20,12 +20,34 @@
 #include <cstring>
 #include <string>
 
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+
+#include "aion/AutoDodge.hpp"
 #include "aion/EntityCache.hpp"
+#include "aion/KeyboardInject.hpp"
 #include "aion/ImGuiLayer.hpp"
 #include "aion/Strings.hpp"
 
 namespace aion {
 namespace {
+
+void VkCodeLabel(int vk, char* out, size_t out_n) {
+    if (!out || out_n == 0) return;
+    out[0] = '\0';
+    if (vk <= 0) return;
+    const WORD norm = (WORD)(vk == VK_SHIFT ? VK_LSHIFT : vk);
+    const LONG param = (LONG)(MapVirtualKeyW(norm, MAPVK_VK_TO_VSC) << 16);
+    wchar_t wide[64];
+    const int n = GetKeyNameTextW(param, wide, (int)(sizeof(wide) / sizeof(wide[0])));
+    if (n > 0) {
+        WideCharToMultiByte(CP_UTF8, 0, wide, -1, out, (int)out_n, nullptr, nullptr);
+        return;
+    }
+    std::snprintf(out, out_n, "VK 0x%X", vk);
+}
 
 // One row of the category grid.
 struct Category {
@@ -259,13 +281,13 @@ void Menu::BuildImGui(ImGuiLayer& layer) {
     // keep it there while it is dragged or resized.
     const ImGuiIO& io = ImGui::GetIO();
     ImGui::SetNextWindowSize(
-        ImVec2(std::min(1120.f, io.DisplaySize.x - 80.f), std::min(640.f, io.DisplaySize.y - 110.f)),
+        ImVec2(std::min(1160.f, io.DisplaySize.x - 72.f), std::min(680.f, io.DisplaySize.y - 96.f)),
         ImGuiCond_FirstUseEver);
-    ImGui::SetNextWindowPos(ImVec2(40.f, 40.f), ImGuiCond_FirstUseEver);
-    ImGui::SetNextWindowSizeConstraints(ImVec2(780.f, 400.f), io.DisplaySize);
+    ImGui::SetNextWindowPos(ImVec2(36.f, 36.f), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSizeConstraints(ImVec2(820.f, 440.f), io.DisplaySize);
 
     bool keep_open = true;
-    if (!ImGui::Begin("AION2 ESP", &keep_open,
+    if (!ImGui::Begin("Runtime Overlay", &keep_open,
                       ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings)) {
         ImGui::End();
         return;
@@ -283,34 +305,44 @@ void Menu::BuildImGui(ImGuiLayer& layer) {
     // Wide enough for a whole word, and for the two writes that sit under the panes below. The
     // session column is sized by its longest value - "149.3 MB, verified" beside its label - so it
     // grows with the font instead of cropping the value.
-    const float rail_w = 150.f;
-    const float session_w = 272.f;
+    const float rail_w = 158.f;
+    const float session_w = 288.f;
     const float gap = ImGui::GetStyle().ItemSpacing.x;
 
-    ImGui::BeginChild("rail", ImVec2(rail_w, -footer_h), ImGuiChildFlags_Borders);
+    // Pane switcher: plain buttons bound to tab_ (ImGui tab items with no in-tab content kept
+    // snapping back to ESP when the tab bar re-laid out).
+    ImGui::Spacing();
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 4.f);
     for (int i = 0; i < kTabCount; ++i) {
-        ImGui::PushID(i);
-        const bool selected = (i == tab_);
-        if (selected) {
-            // The marker gets a gutter of its own. Drawn at the label's own x - which is where this
-            // used to be - the 3px bar was painted through the first letter of the selected tab.
-            const ImVec2 p = ImGui::GetCursorScreenPos();
-            const float pad_y = ImGui::GetStyle().FramePadding.y;
-            ImGui::GetWindowDrawList()->AddRectFilled(
-                ImVec2(p.x, p.y - pad_y + 1.f),
-                ImVec2(p.x + 3.f, p.y - pad_y + ImGui::GetFrameHeight() - 1.f),
-                ImGui::GetColorU32(ImGuiCol_CheckMark));
-            ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 9.f);
+        if (i > 0) ImGui::SameLine();
+        const bool sel = (i == tab_);
+        if (sel) {
+            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(kAccent.x, kAccent.y, kAccent.z, 0.88f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered,
+                                  ImVec4(kAccent.x, kAccent.y, kAccent.z, 1.f));
+        } else {
+            ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_FrameBg));
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered,
+                                  ImGui::GetStyleColorVec4(ImGuiCol_FrameBgHovered));
         }
-        if (ImGui::Selectable(kTabs[i], selected)) tab_ = i;
-        ImGui::PopID();
+        if (ImGui::Button(kTabs[i])) tab_ = i;
+        ImGui::PopStyleColor(2);
     }
+    ImGui::PopStyleVar();
+    ImGui::Spacing();
+
+    ImGui::BeginChild("rail", ImVec2(rail_w, -footer_h), ImGuiChildFlags_Borders,
+                      ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
     // Save and Reload act on the file the whole menu writes, so they sit under the panes rather
     // than beside the status line at the bottom of the window, where they read as pane-local
     // actions. The status line stays in the footer, where its result is reported.
-    ImGui::Separator();
     const float rail_button_w = ImGui::GetContentRegionAvail().x;
+    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(kAccent.x, kAccent.y, kAccent.z, 0.85f));
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(kAccent.x, kAccent.y, kAccent.z, 1.f));
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(kAccent.x * 0.75f, kAccent.y * 0.75f,
+                                                         kAccent.z * 0.75f, 1.f));
     if (ImGui::Button("Save", ImVec2(rail_button_w, 0.f)) && on_save_ini) on_save_ini();
+    ImGui::PopStyleColor(3);
     if (ImGui::Button("Reload", ImVec2(rail_button_w, 0.f)) && on_reload_ini) on_reload_ini();
     Hint("Save writes aion.ini; Reload re-reads it.");
     ImGui::EndChild();
@@ -326,7 +358,9 @@ void Menu::BuildImGui(ImGuiLayer& layer) {
     ImGui::EndChild();
 
     ImGui::SameLine();
-    ImGui::BeginChild("session", ImVec2(session_w, -footer_h), ImGuiChildFlags_Borders);
+    ImGui::BeginChild("session", ImVec2(session_w, -footer_h), ImGuiChildFlags_Borders,
+                      ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+    ImGui::SetScrollY(0.f);
     SessionPanel();
     ImGui::EndChild();
 
@@ -346,12 +380,19 @@ void Menu::BuildImGui(ImGuiLayer& layer) {
     const float dump_w = 118.f;
     const float status_w =
         ImGui::GetContentRegionAvail().x - dump_w - ImGui::GetStyle().ItemSpacing.x;
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.f, 0.f));
-    ImGui::BeginChild("status", ImVec2(status_w, ImGui::GetFrameHeight()), ImGuiChildFlags_None,
+    const bool status_ok = status_.empty();
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8.f, 0.f));
+    ImGui::PushStyleColor(ImGuiCol_ChildBg,
+                          status_ok ? ImVec4(kGood.x, kGood.y, kGood.z, 0.12f)
+                                    : ImVec4(kWarn.x, kWarn.y, kWarn.z, 0.10f));
+    ImGui::BeginChild("status", ImVec2(status_w, ImGui::GetFrameHeight()), ImGuiChildFlags_Borders,
                       ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
-    ImGui::TextUnformatted(status_.empty() ? "ready" : status_.c_str());
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextColored(status_ok ? kCalm : kWarn, "%s",
+                       status_ok ? "Ready" : status_.c_str());
     const bool status_hovered = ImGui::IsWindowHovered() && !status_.empty();
     ImGui::EndChild();
+    ImGui::PopStyleColor();
     ImGui::PopStyleVar();
     if (status_hovered) ImGui::SetTooltip("%s", status_.c_str());
 
@@ -517,8 +558,92 @@ void Menu::PaneConfig() {
 
     if (ImGui::CollapsingHeader("Class patterns")) SectionClassPatterns();
 
+    Section("Auto dodge");
+    SectionAutoDodge();
+
     Section("Display");
     SectionDisplay();
+}
+
+void Menu::SectionAutoDodge() {
+    cfg_->auto_dodge_vk = NormalizeDodgeVk(cfg_->auto_dodge_vk);
+    Hint("AION2 dodge is Shift + W/A/S/D (directional), not Shift alone. Tick Enabled, Save, "
+         "close menu to fight. Optional: aion_external.exe --scan-dodge to tune telegraph hints.");
+    ImGui::Checkbox("Enabled", &cfg_->auto_dodge);
+    ImGui::SetNextItemWidth(120.f);
+    ImGui::InputInt("Key (VK code)", &cfg_->auto_dodge_vk);
+    if (ImGui::Button("Left Shift dodge (160)")) cfg_->auto_dodge_vk = 0xA0;
+    ImGui::SameLine();
+    if (cfg_->auto_dodge_vk == 0x10) {
+        ImGui::TextColored(ImVec4(1.f, 0.75f, 0.2f, 1.f), "VK 16 is generic Shift — use 160.");
+        cfg_->auto_dodge_vk = 0xA0;
+    }
+    {
+        char vk_label[80];
+        VkCodeLabel(cfg_->auto_dodge_vk, vk_label, sizeof vk_label);
+        ImGui::TextDisabled("Windows: %s (Left Shift = 160 / 0xA0, not 16).", vk_label[0] ? vk_label : "?");
+    }
+    ImGui::SetNextItemWidth(120.f);
+    ImGui::InputInt("Move key (VK)", &cfg_->auto_dodge_move_vk);
+    ImGui::TextDisabled("Direction with dodge: W=87, A=65, S=83, D=68; 0 = shift only.");
+    ImGui::SetNextItemWidth(180.f);
+    int input_m = cfg_->auto_dodge_input;
+    if (input_m < 0 || input_m > 3) input_m = 0;
+    const char* input_modes[] = {"auto (FakerInput, then SendInput)", "SendInput only",
+                                 "Interception (legacy)", "FakerInput only"};
+    if (ImGui::Combo("Input backend", &input_m, input_modes, 4)) cfg_->auto_dodge_input = input_m;
+    if (FakerInputDriverAvailable())
+        ImGui::TextColored(ImVec4(0.4f, 1.f, 0.5f, 1.f),
+                           "FakerInput driver active (virtual HID keyboard).");
+    else if (FakerInputDllPresent())
+        ImGui::TextColored(ImVec4(1.f, 0.75f, 0.2f, 1.f),
+                           "fakerinput.dll found but driver not connected — install "
+                           "FakerInput_Setup x64.msi (DS4Windows driver pack).");
+    else
+        ImGui::TextDisabled(
+            "Recommended: install FakerInput driver (ds4windows.org/drivers/fakerinput/), "
+            "copy fakerinput.dll next to aion_external.exe. Interception is often broken on "
+            "Win11.");
+    if (InterceptionDriverAvailable())
+        ImGui::TextDisabled("Interception driver also detected (optional).");
+    ImGui::SetNextItemWidth(120.f);
+    ImGui::InputInt("Cooldown ms", &cfg_->auto_dodge_cooldown_ms);
+    ImGui::SetNextItemWidth(180.f);
+    const char* triggers[] = {"off", "hp danger (panic)", "telegraph (attack edge)",
+                              "hp or telegraph (recommended)"};
+    int trig = cfg_->auto_dodge_trigger;
+    if (trig == 4) trig = 3;
+    if (trig < 0 || trig > 3) trig = 3;
+    if (ImGui::Combo("Trigger", &trig, triggers, 4)) cfg_->auto_dodge_trigger = trig;
+    ImGui::TextDisabled(
+        "Dodges on attack edges only (projectile enters range, UI spike, anim flag). "
+        "Turn off Dodge UI objects if it spam-dodges — UI hints match always-on widgets.");
+    SliderRow("Range m", &cfg_->auto_dodge_range_m, 4.f, 40.f, "%.0f m");
+    ImGui::SetNextItemWidth(120.f);
+    ImGui::InputInt("Scan period ms", &cfg_->auto_dodge_scan_period_ms);
+    ImGui::Checkbox("Projectiles in range", &cfg_->auto_dodge_projectiles);
+    ImGui::Checkbox("Dodge UI objects", &cfg_->auto_dodge_ui_objects);
+    ImGui::Checkbox("Anim bool flags", &cfg_->auto_dodge_anim_flags);
+    char hints[512];
+    char props[512];
+    std::snprintf(hints, sizeof hints, "%s", cfg_->auto_dodge_class_hints.c_str());
+    std::snprintf(props, sizeof props, "%s", cfg_->auto_dodge_anim_props.c_str());
+    ImGui::TextUnformatted("Class hints");
+    if (ImGui::InputText("##dodge_hints", hints, sizeof hints)) cfg_->auto_dodge_class_hints = hints;
+    ImGui::TextUnformatted("Anim props");
+    if (ImGui::InputText("##dodge_props", props, sizeof props)) cfg_->auto_dodge_anim_props = props;
+    if (ImGui::Button("Test dodge key") && on_auto_dodge_test) on_auto_dodge_test();
+    ImGui::TextDisabled(
+        "Test next frame: 3 bursts, Shift+W. Close Start/other windows; aggro for dodge not sprint.");
+    ImGui::TextDisabled("live: proj %d  ui %d  anim %d", stats_.auto_dodge_proj,
+                        stats_.auto_dodge_ui, stats_.auto_dodge_anim);
+    if (stats_.auto_dodge_fires > 0) {
+        ImGui::TextDisabled("fires: %u  last: %s  (%d ms ago)  via: %s",
+                            stats_.auto_dodge_fires,
+                            stats_.auto_dodge_last ? stats_.auto_dodge_last : "?",
+                            stats_.auto_dodge_ms_since,
+                            stats_.auto_dodge_input ? stats_.auto_dodge_input : "?");
+    }
 }
 
 void Menu::SectionLists() {

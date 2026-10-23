@@ -42,6 +42,7 @@ Options ParseArgs(int argc, char** argv) {
         // Answers "why is the game not drawing this" and "where is the render cut" from the
         // client's own state instead of from a distance guess.
         else if (std::string(argv[i]) == "--dump-gates" && i + 1 < argc) opt.gates_substr = argv[++i];
+        else if (std::string(argv[i]) == "--scan-dodge") opt.scan_dodge_mode = true;
         // Headless: resolve actor display names from their nameplate widget.
         else if (std::string(argv[i]) == "--dump-nameplate") opt.dump_nameplate_mode = true;
         // Headless, read-only: per character, the nameplate's friend/foe marker switch - its active

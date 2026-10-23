@@ -83,6 +83,26 @@ public:
         return ready;
     }
 
+    // True when the three data globals decode the way the ESP needs: live pool, non-empty object
+    // array, and a world whose persistent level has actors. Meaningless before Init() succeeds.
+    bool RuntimeGlobalsValidated() const {
+        if (!ready) return false;
+        const u32 cursor = rd<u32>(gnames + off::name_pool::CurrentByteCursor);
+        const u32 block = rd<u32>(gnames + off::name_pool::CurrentBlock);
+        const bool pool_live = mem->valid_ptr(ptr(gnames + off::name_pool::Blocks)) &&
+                               cursor < off::name_pool::BlockSize &&
+                               block < off::name_pool::MaxBlocks;
+        if (!pool_live || !objects.ok() || objects.Num() <= 0) return false;
+        const addr_t world = ptr(gworld);
+        const addr_t level =
+            mem->valid_ptr(world) ? ptr(world + off::uworld::PersistentLevel) : 0;
+        const std::size_t actors =
+            mem->valid_ptr(level)
+                ? mem->read_tarray<addr_t>(level + off::ulevel::Actors, 100000).size()
+                : 0;
+        return actors > 0;
+    }
+
     // Reads every supplied global back through the live client and says, in the offset table's own
     // vocabulary, whether it holds. The tests are structural, not range-based: these pointers
     // address engine objects allocated by the client's own allocator, which need not lie inside the
@@ -233,12 +253,38 @@ public:
             AION_ERROR("verdict: different client build - %llu bytes, the offsets were verified "
                        "against %llu. They cannot be used on this install.",
                        (unsigned long long)fsz, (unsigned long long)off::build::VerifiedExeSize);
-        else
-            AION_ERROR("verdict: the reader works and the client matches, so the globals are empty. "
-                       "Check the read status above: if every read succeeded, the client has not "
-                       "initialised the name pool yet (a NULL block table is pre-init) - attach "
-                       "once the game is in the world; if they FAILED, these RVAs are not mapped "
-                       "in this image.");
+        else {
+            bool all_reads_ok = true;
+            bool all_zero = true;
+            for (addr_t a : {gnames, gobjects, gworld}) {
+                const auto word = mem->try_read<u64>(a);
+                if (!word) all_reads_ok = false;
+                else if (*word != 0) all_zero = false;
+            }
+            if (all_reads_ok && all_zero) {
+#if defined(_WIN32)
+                const auto* ext = dynamic_cast<ExternalMemory*>(mem);
+                const bool broker = ext && ext->kernmem_active();
+                AION_ERROR("verdict: reads succeed but globals at the compiled RVAs are all zero. "
+                           "Either the client has not published GNames/GObjects yet (wait until "
+                           "in-world), or NCGuard is serving a packed image where those RVAs are "
+                           "not populated under plain ReadProcessMemory%s.",
+                           broker ? " (kernmem broker is active - if this persists, the RVAs are "
+                                    "wrong for this build)"
+                                  : " - see README kernel memory path (kernmemd) if RPM never "
+                                    "sees live data");
+#else
+                AION_ERROR("verdict: reads succeed but globals are all zero - wait until in-world "
+                           "or the compiled RVAs do not match this build.");
+#endif
+            } else if (!all_reads_ok)
+                AION_ERROR("verdict: some global addresses could not be read - wrong RVAs for this "
+                           "image or the mapping is not visible to this reader.");
+            else
+                AION_ERROR("verdict: the reader works and the build matches, but runtime objects "
+                           "are not live yet. Wait until the character is in the world, or pick "
+                           "the other AION2.exe instance if two are running.");
+        }
     }
 
     template <class T> T rd(addr_t a) const { return mem->read_or<T>(a); }

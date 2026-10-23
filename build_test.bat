@@ -34,7 +34,7 @@ if defined IMGUI_STALE (
 
 echo === [2/3] recon (external, read-only) ===
 cl %COMMON% /Fe:build\aion_recon.exe /Fo:build\ /Fd:build\ ^
-   src\recon.cpp src\obf_strings.cpp user32.lib || exit /b 1
+   src\recon.cpp src\LiveAttach.cpp src\obf_strings.cpp user32.lib || exit /b 1
 
 echo === [3/3] overlay_test (standalone D3D11 renderer + ImGui menu) ===
 cl %COMMON% /Fe:build\overlay_test.exe /Fo:build\ /Fd:build\ ^

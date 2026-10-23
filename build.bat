@@ -55,7 +55,7 @@ echo === [3/3] aion_external.exe (external ESP overlay + ImGui menu) ===
 cl %COMMON% /Fe:build\aion_external.exe /Fo:build\ /Fd:build\ ^
    src\external_main.cpp src\Overlay.cpp src\Menu.cpp src\ImGuiLayer.cpp src\entry_obf.cpp ^
    src\app\Window.cpp src\app\Launch.cpp src\app\Names.cpp src\app\Cli.cpp ^
-   src\app\Client.cpp src\app\Modes.cpp src\app\Frame.cpp ^
+   src\app\Client.cpp src\app\Modes.cpp src\app\Frame.cpp src\Foreground.cpp src\KeyboardInject.cpp src\AutoDodge.cpp src\DodgeTelegraph.cpp src\LiveAttach.cpp ^
    build\obf_strings.obj %IMGUI_OBJ%
 if errorlevel 1 (
   echo    build\aion_external.exe could not be written - read the compiler output above.

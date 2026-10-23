@@ -22,29 +22,20 @@ enum class Status { Validated, Unvalidated, Invalid, Unknown };
 const char* StatusName(Status s);
 
 // ============================================================ Globals (RVA) ===
-// Client patch 2026-10-14 (Steam, 156,590,880 bytes, sha256 699f42cd...). Re-derived from the live
-// client, not supplied.
+// Verified client build: 2026-10-21 Steam (156,609,312 bytes, sha256 ce978f75...). The three
+// data globals below are the working set for that image; Sdk::VerifyOffsets() is the authority on
+// whether they still decode on *your* running client. Do not treat a matching file size as proof.
 //
-// The three data globals did *not* move by one shift this time: GObjects came out at 10-09 + 0xB000,
-// GNames at +0xB180 and GWorld at +0xB070. The premise the 10-07 and 10-09 patches both satisfied -
-// "a patch moves the data region as one block, so apply the pair's shift to the rest" - does not hold
-// here, so it must not be trusted again. Each value below was located on its own evidence:
-//   GObjects 0x0EC83990  the only array-shaped location within +-16 MiB with MaxElements 2,162,688
-//                        (33 chunks - the same capacity 10-07 and 10-09 had), a live chunk table,
-//                        257,069-283,227 live objects over 4 chunks, and a first item that decodes
-//                        to the '/Script/CoreUObject' Package.
-//   GNames   0x0F12B5C0  the pool-shaped location that decodes the names of *those objects*: 64 of
-//                        64 sampled, index 3 'ByteProperty', 0x5BD '/Script/CoreUObject' - the same
-//                        two probes the 10-09 entry was checked with.
-//   GWorld   0x0EF8EC38  the only slot within +-512 KiB of the previous RVA holding a heap UObject
-//                        of class 'World' with a resolvable level and actor count: UWorld
-//                        'World_D_Starter' (outer /Game/Map/World/World_D/world_d_starter/
-//                        World_D_Starter) -> +0x30 'PersistentLevel' -> +0xA0/+0xA8 both live.
-// tools/find_shift.py prints the window candidates and checks GWorld structurally, but its "apply the
-// GNames shift to the remaining globals" step is only a hint now - GWorld above is what disproves
-// it. tools/find_globals.py finds no pair at all on this client: its pool probe (entry indexes
-// 0x10001/0x10002) tests the middle of a block-1 entry and so rejects the real pool, which is why
-// find_shift.py exists.
+// 2026-10-14 evidence (superseded RVAs, kept for patch diffs): GObjects 0x0EC83990, GNames
+// 0x0F12B5C0, GWorld 0x0EF8EC38 — each located on its own probes (MaxElements 2,162,688 array,
+// pool index 3 'ByteProperty' and 0x5BD '/Script/CoreUObject', GWorld slot -> World with level
+// actors). The 10-07/10-09 "one shift for all data globals" rule already failed on 10-14; the
+// 10-21 constants are +0x7040 vs those three, not a uniform block shift — re-check every global
+// after each patch.
+//
+// 2026-10-14 note (still true): tools/find_shift.py (when present) validates GWorld structurally;
+// its "apply the GNames shift to the rest" step is only a hint. tools/find_globals.py rejects
+// this client's real pool because its probe reads block-1 entry indexes 0x10001/0x10002.
 // GEngine and LocalPlayer used to be listed here (0x0F259A10 / 0x0F3B57C0). Removed 2026-10-11:
 // the class-name check added to Sdk::VerifyOffsets showed the first lands on a UClass object
 // (class='Class') and the second on an address with no class at all - both wrong for this build,
@@ -54,19 +45,16 @@ const char* StatusName(Status s);
 //   sub-object, whose chunk table and counters sit at +0x10/+0x20/+0x24/+0x2C - which is what this
 //   code assumes of the struct base.
 namespace globals {
-constexpr std::uint32_t GNames       = 0x0F132600;  // FNamePool     (was 0x0F120440, +0xB180)
-constexpr std::uint32_t GObjects     = 0x0EC8A990;  // FUObjectArray (was 0x0EC78990, +0xB000)
-constexpr std::uint32_t GWorld       = 0x0EF95C78;  // UWorld**      (was 0x0EF83BC8, +0xB070)
+constexpr std::uint32_t GNames       = 0x0F132600;  // FNamePool     (10-14: 0x0F12B5C0; +0x7040)
+constexpr std::uint32_t GObjects     = 0x0EC8A990;  // FUObjectArray (10-14: 0x0EC83990; +0x7000)
+constexpr std::uint32_t GWorld       = 0x0EF95C78;  // UWorld**      (10-14: 0x0EF8EC38; +0x7040)
 // UObject::ProcessEvent: its address in the image and the vtable slot it is reached through.
 // The overlay is read-only and never calls it, so nothing else in the program would notice if
 // either number drifted - verifying them is the whole point of the pair.
-// 2026-10-14: the slot is still 0x4D. Across 36 distinct sampled vtables the same function pointer
-// sat at 0x4D in 34 of them, and that pointer appears as the modal value of *no other* slot from
-// 0x00 to 0x120 - one address, one slot - and the 12 bytes at it are a real function entry
-// (`push rbp; push rsi; push rdi; push r12-r15`), which is what the 10-07 value failed. Code moves
-// independently of the data region: +0x730 here against the data globals' +0xB0xx.
-constexpr std::uint32_t ProcessEvent      = 0x04206400;  // vtable[0x4D] on the 10-14 client
-constexpr std::uint32_t ProcessEventIndex = 0x4D;        // validated (slot holds it on every object)
+// 2026-10-14: slot 0x4D validated on that build; code RVAs move independently of data globals.
+// Re-run Sdk::VerifyOffsets() on 10-21 — do not assume 0x04206400 survived the patch.
+constexpr std::uint32_t ProcessEvent      = 0x04206400;  // UNVALIDATED on 10-21 until live vtable check
+constexpr std::uint32_t ProcessEventIndex = 0x4D;        // slot index; validated on 10-14 only
 // Unresolved symbols (supplied 0). Located at runtime by signature/reflection.
 constexpr std::uint32_t GEngineLoop       = 0;  // UNKNOWN
 constexpr std::uint32_t StaticFindObject  = 0;  // UNKNOWN
@@ -80,10 +68,9 @@ constexpr std::uint32_t AppendString      = 0;  // unused
 // The install every offset above was derived against. Sdk::Diagnose compares a client to
 // this, which is the only way to tell "different build" apart from "the reads are not
 // reaching the client" when every global comes back zero.
-//   AION2.exe  156,590,880 bytes  sha256 699f42cd268dad447dc560162358d0c5ea1a4c27a36be3f66ac5557047ddafd8
-//   (Steam install, 2026-10-14. Previous revisions: 156,557,752 bytes sha256 3842fc511a09121d...
-//    on 10-09, 156,604,184 bytes sha256 d93b050d623550fc... on 10-07, and 156,554,016 bytes
-//    sha256 59d33a2d3ce7869d... before that.)
+//   AION2.exe  156,609,312 bytes  sha256 ce978f7525c05589cb1f1ff8a9c03628148bba3665da9594dbae8fa983d9b107
+//   (Steam install, 2026-10-21, build 26077854. Previous: 156,590,880 bytes sha256 699f42cd... on
+//    10-14; 156,557,752 on 10-09; 156,604,184 on 10-07; 156,554,016 before that.)
 // The PE TimeDateStamp is the protector's - the image is packed by NCGuard - so it does not
 // identify the game build; the file size and hash do.
 namespace build {

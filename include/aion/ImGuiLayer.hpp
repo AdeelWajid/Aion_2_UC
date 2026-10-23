@@ -55,13 +55,15 @@ public:
     // never for WM_NCHITTEST, which the overlay answers itself).
     bool WndProc(void* hwnd, unsigned msg, unsigned long long wparam, long long lparam);
 
-    // Dark, flat, no rounding, 1px borders, no shadows, and one accent (#F34B7D) for every control.
+    // Dark charcoal theme, soft corners, cool blue accent aligned with the HUD/session panel.
     // Called by Init and after a scale change.
     void ApplyStyle();
     // While the menu is open, take the foreground back if the client has grabbed it: a fullscreen
     // client reclaims the foreground within seconds of the menu opening, and an unfocused menu
     // receives no keys while its first click only activates it.
     void ReclaimForeground();
+    // While the menu is open, skip ReclaimForeground until this time (e.g. auto-dodge test input).
+    void DeferForegroundReclaim(int ms);
     // Re-rasterizes the atlas. `face` is a family name ("Segoe UI"), `px` the pixel size at
     // scale 1. Non-Latin labels need more than the default range, so the builder merges a CJK
     // face when the system has one and stays Latin-only when it does not.

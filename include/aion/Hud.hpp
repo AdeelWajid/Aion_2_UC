@@ -116,9 +116,9 @@ inline void DrawHud(IOverlay& gfx, const Config& cfg, const HudStats& st) {
     const float kY = hud_detail::kY * s;
 
     // Same palette as the menu, so the panel does not look like a separate program.
-    const Color bg = Color::RGBA(16, 16, 20, 235);
-    const Color border = Color::RGBA(120, 120, 160, 255);
-    const Color title_c = Color::RGBA(120, 200, 255, 255);
+    const Color bg = Color::RGBA(14, 16, 22, 238);
+    const Color border = Color::RGBA(72, 118, 210, 220);
+    const Color title_c = Color::RGBA(115, 158, 250, 255);
     const Color text = Color::RGBA(220, 220, 220, 255);
     const Color dim = Color::RGBA(130, 130, 130, 255);
     const Color ok = Color::RGBA(80, 230, 120, 255);

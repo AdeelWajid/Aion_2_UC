@@ -12,6 +12,7 @@
 #include "backends/imgui_impl_dx11.h"
 #include "backends/imgui_impl_win32.h"
 
+#include "aion/Foreground.hpp"
 #include "aion/Logger.hpp"
 #include "aion/Overlay.hpp"
 
@@ -111,52 +112,6 @@ void MarkDrawnRegion(D3D11Overlay& gfx, const ImDrawData& data) {
     if (any) gfx.MarkDirty(x0, y0, x1, y1);
 }
 
-// Take the foreground, which plain SetForegroundWindow refuses to do for a process that is not
-// already foreground (the foreground lock). That refusal is why the menu used to need ALT: the
-// click-through window can never take focus on its own, so nothing ever gave it permission.
-//
-// Two ways through the lock, tried in order:
-//  1. share the current foreground thread's input queue for the duration of the call, which makes
-//     the system treat the call as coming from the foreground process;
-//  2. if that is still refused, send a synthetic ALT press first: the process that produced the last
-//     input event is allowed to set the foreground, which is the documented way a launcher or a
-//     panel raises itself. A lone ALT is benign in a game and on the desktop.
-//
-// Returns whether the window ended up foreground, because this failing silently is exactly what
-// made the menu's X and its text fields look broken: a window that is not foreground receives no
-// keys, and its first click is spent activating it rather than reaching a widget.
-bool ForceForeground(HWND target, bool release_pointer, int* cursor_calls) {
-    if (!target) return false;
-    auto raise = [target] {
-        BringWindowToTop(target);
-        SetForegroundWindow(target);
-        SetActiveWindow(target);
-        SetFocus(target);
-    };
-    HWND fg = GetForegroundWindow();
-    const DWORD fg_thread = fg ? GetWindowThreadProcessId(fg, nullptr) : 0;
-    const DWORD our_thread = GetCurrentThreadId();
-    const bool attached =
-        fg_thread && fg_thread != our_thread && AttachThreadInput(our_thread, fg_thread, TRUE);
-    if (release_pointer) {
-        ClipCursor(nullptr);
-        // ShowCursor is a counter per input queue: call until it reads visible, and remember how
-        // many calls that took so the count can be put back on close.
-        int calls = 0;
-        while (calls < 16 && ShowCursor(TRUE) < 0) ++calls;
-        if (cursor_calls) *cursor_calls = calls;
-    }
-    raise();
-    if (GetForegroundWindow() != target) {
-        // Refused again: become the process that produced the last input event, then retry.
-        keybd_event(VK_MENU, 0, KEYEVENTF_EXTENDEDKEY, 0);
-        keybd_event(VK_MENU, 0, KEYEVENTF_EXTENDEDKEY | KEYEVENTF_KEYUP, 0);
-        raise();
-    }
-    if (attached) AttachThreadInput(our_thread, fg_thread, FALSE);
-    return GetForegroundWindow() == target;
-}
-
 }  // namespace
 
 // ------------------------------------------------------------------------ impl --
@@ -172,6 +127,7 @@ struct ImGuiLayer::Impl {
     // When the foreground was last reclaimed, and whether that has been logged: the reclaim repeats
     // while the client keeps taking it back, so the log line must not.
     unsigned long long reclaim_ms = 0;
+    unsigned long long defer_reclaim_until = 0;
     bool reclaim_logged = false;
     float scale = 1.f;
     std::string face = "Segoe UI";
@@ -268,9 +224,17 @@ void ImGuiLayer::BeginFrame() {
 // Only the client is taken back from: if the foreground is some other application, the user switched
 // to it on purpose and the menu must not fight that. Repeats are paced, because the client keeps
 // taking it back and a reclaim every frame would be a focus war.
+void ImGuiLayer::DeferForegroundReclaim(int ms) {
+    auto* i = impl_;
+    if (!i || ms <= 0) return;
+    const unsigned long long until = GetTickCount64() + (unsigned long long)ms;
+    if (until > i->defer_reclaim_until) i->defer_reclaim_until = until;
+}
+
 void ImGuiLayer::ReclaimForeground() {
     auto* i = impl_;
     if (!i || !active_ || !interactive_ || !i->hwnd) return;
+    if (i->defer_reclaim_until && GetTickCount64() < i->defer_reclaim_until) return;
     HWND game = (HWND)game_hwnd_;
     if (!game) return;  // nothing to tell a deliberate switch apart from a steal
     HWND fg = GetForegroundWindow();
@@ -291,7 +255,7 @@ void ImGuiLayer::ReclaimForeground() {
     // is the point - while the menu is open the only window receiving input must be the menu.
     if (i->reclaim_ms && now - i->reclaim_ms < 100) return;
     i->reclaim_ms = now;
-    if (ForceForeground(i->hwnd, false, nullptr) && !i->reclaim_logged) {
+    if (RaiseWindowForeground(i->hwnd, false, nullptr) && !i->reclaim_logged) {
         i->reclaim_logged = true;
         AION_INFO("menu: the client had taken the foreground back; reclaimed it");
     }
@@ -343,7 +307,7 @@ void ImGuiLayer::SetInteractive(bool on) {
         // to get the mouse back. Whether it worked is reported: a menu without the foreground gets
         // no keys, and its first click only activates it - which reads as a menu whose X does
         // nothing, the exact symptom a silent refusal produced.
-        if (ForceForeground(i->hwnd, true, &i->cursor_calls))
+        if (RaiseWindowForeground(i->hwnd, true, &i->cursor_calls))
             AION_INFO("menu: took the foreground (keys and clicks reach the menu)");
         else
             AION_WARN("menu: the foreground was refused; keys will not reach the menu and the first "
@@ -363,7 +327,7 @@ void ImGuiLayer::SetInteractive(bool on) {
         i->reclaim_logged = false;
         HWND game = (HWND)game_hwnd_;
         if (game) {
-            if (!ForceForeground(game, false, nullptr))
+            if (!RaiseWindowForeground(game, false, nullptr))
                 AION_INFO("menu: the client did not take the foreground back on close");
         } else {
             SetWindowPos(i->hwnd, HWND_TOPMOST, 0, 0, 0, 0,
@@ -390,24 +354,24 @@ void ImGuiLayer::ApplyStyle() {
     ImGui::GetStyle() = ImGuiStyle();
     ImGui::StyleColorsDark();
     ImGuiStyle& s = ImGui::GetStyle();
-    // Flat: no rounded corner anywhere, and everything separated by a single pixel.
-    s.WindowRounding = 0.f;
-    s.ChildRounding = 0.f;
-    s.FrameRounding = 0.f;
-    s.PopupRounding = 0.f;
-    s.ScrollbarRounding = 0.f;
-    s.GrabRounding = 0.f;
-    s.TabRounding = 0.f;
+    // Soft corners and consistent spacing — reads as a product panel, not a debug widget.
+    s.WindowRounding = 6.f;
+    s.ChildRounding = 4.f;
+    s.FrameRounding = 4.f;
+    s.PopupRounding = 4.f;
+    s.ScrollbarRounding = 4.f;
+    s.GrabRounding = 3.f;
+    s.TabRounding = 4.f;
     s.WindowBorderSize = 1.f;
     s.ChildBorderSize = 1.f;
-    s.FrameBorderSize = 1.f;
+    s.FrameBorderSize = 0.f;
     s.PopupBorderSize = 1.f;
     s.TabBorderSize = 0.f;
-    s.WindowPadding = ImVec2(10, 10);
-    s.FramePadding = ImVec2(7, 4);
-    s.ItemSpacing = ImVec2(7, 6);
-    s.ItemInnerSpacing = ImVec2(5, 5);
-    s.CellPadding = ImVec2(6, 3);
+    s.WindowPadding = ImVec2(12, 10);
+    s.FramePadding = ImVec2(8, 5);
+    s.ItemSpacing = ImVec2(8, 7);
+    s.ItemInnerSpacing = ImVec2(6, 5);
+    s.CellPadding = ImVec2(8, 4);
     s.IndentSpacing = 16.f;
     s.ScrollbarSize = 12.f;
     s.GrabMinSize = 8.f;
@@ -415,18 +379,15 @@ void ImGuiLayer::ApplyStyle() {
     s.AntiAliasedLines = true;
     s.AntiAliasedFill = true;
 
-    // Dark, low-chroma surfaces with one accent for anything the user can act on. StyleColorsDark's
-    // default greys are blue-tinted and its blue accent reads as a stock ImGui demo, so the whole
-    // palette is set explicitly: neutral greys for structure, #F34B7D for buttons, checks, sliders
-    // and selection, and nothing else.
-    const ImVec4 accent = ImVec4(0.953f, 0.294f, 0.490f, 1.00f);       // #F34B7D
-    const ImVec4 accent_hover = ImVec4(1.000f, 0.380f, 0.565f, 1.00f);
-    const ImVec4 accent_active = ImVec4(0.843f, 0.216f, 0.416f, 1.00f);
-    const ImVec4 surface = ImVec4(0.106f, 0.110f, 0.125f, 0.97f);       // window
-    const ImVec4 surface_low = ImVec4(0.086f, 0.090f, 0.102f, 1.00f);   // child, title, table head
-    const ImVec4 surface_high = ImVec4(0.145f, 0.152f, 0.172f, 1.00f);  // inputs, sliders
-    const ImVec4 line = ImVec4(0.220f, 0.230f, 0.260f, 1.00f);
-    const ImVec4 text_dim = ImVec4(0.510f, 0.530f, 0.580f, 1.00f);
+    // Neutral charcoal surfaces + one cool accent (matches the menu session panel and debug HUD).
+    const ImVec4 accent = ImVec4(0.45f, 0.62f, 0.98f, 1.00f);
+    const ImVec4 accent_hover = ImVec4(0.55f, 0.70f, 1.00f, 1.00f);
+    const ImVec4 accent_active = ImVec4(0.32f, 0.48f, 0.86f, 1.00f);
+    const ImVec4 surface = ImVec4(0.09f, 0.095f, 0.115f, 0.96f);
+    const ImVec4 surface_low = ImVec4(0.07f, 0.075f, 0.09f, 1.00f);
+    const ImVec4 surface_high = ImVec4(0.13f, 0.14f, 0.17f, 1.00f);
+    const ImVec4 line = ImVec4(0.24f, 0.26f, 0.32f, 1.00f);
+    const ImVec4 text_dim = ImVec4(0.52f, 0.55f, 0.62f, 1.00f);
 
     ImVec4* c = s.Colors;
     c[ImGuiCol_Text] = ImVec4(0.910f, 0.920f, 0.940f, 1.00f);
@@ -450,9 +411,9 @@ void ImGuiLayer::ApplyStyle() {
     c[ImGuiCol_CheckMark] = accent;
     c[ImGuiCol_SliderGrab] = accent;
     c[ImGuiCol_SliderGrabActive] = accent_hover;
-    c[ImGuiCol_Button] = accent;
-    c[ImGuiCol_ButtonHovered] = accent_hover;
-    c[ImGuiCol_ButtonActive] = accent_active;
+    c[ImGuiCol_Button] = surface_high;
+    c[ImGuiCol_ButtonHovered] = ImVec4(0.18f, 0.20f, 0.26f, 1.00f);
+    c[ImGuiCol_ButtonActive] = ImVec4(accent.x, accent.y, accent.z, 0.35f);
     c[ImGuiCol_Header] = ImVec4(accent.x, accent.y, accent.z, 0.28f);
     c[ImGuiCol_HeaderHovered] = ImVec4(accent.x, accent.y, accent.z, 0.40f);
     c[ImGuiCol_HeaderActive] = ImVec4(accent.x, accent.y, accent.z, 0.55f);
@@ -490,10 +451,13 @@ void ImGuiLayer::RebuildFonts(const std::string& face, int px) {
     const float size = (float)i->px * (i->scale > 0.f ? i->scale : 1.f);
 
     ImFontConfig cfg;
-    cfg.OversampleH = 2;
-    cfg.OversampleV = 1;
+    cfg.OversampleH = 3;
+    cfg.OversampleV = 2;
     cfg.PixelSnapH = true;
+    cfg.RasterizerMultiply = 1.05f;
     const char* file = FontFileFor(i->face);
+    if (!file && i->face == "Segoe UI")
+        file = FontFileFor("Segoe UI Semibold");
     ImFont* font = nullptr;
     if (FileExists(file))
         font = io.Fonts->AddFontFromFileTTF(file, size, &cfg, io.Fonts->GetGlyphRangesDefault());

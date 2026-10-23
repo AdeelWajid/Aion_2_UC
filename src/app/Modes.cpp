@@ -28,6 +28,7 @@
 #include "aion/Config.hpp"
 #include "aion/DataFile.hpp"
 #include "aion/DataTable.hpp"
+#include "aion/DodgeTelegraph.hpp"
 #include "aion/EntityCache.hpp"
 #include "aion/Logger.hpp"
 #include "aion/Memory.hpp"
@@ -2187,6 +2188,16 @@ int ModeRelation(ModeContext& mc) {
     return 0;
 }
 
+static int ModeScanDodge(ModeContext& mc) {
+    Sdk& sdk = mc.sdk;
+    Reflection refl(&sdk);
+    const int rc = ScanDodgeHintsReport(&sdk, &refl);
+    DestroyWindow(mc.overlay);
+    mc.gfx.Shutdown();
+    mc.mem.Close();
+    return rc;
+}
+
 // The order below is the order the orchestrator has always checked the modes in, so a command line
 // that selects more than one still runs the same one. -1 means none was selected.
 int RunDumpModes(ModeContext& mc) {
@@ -2215,6 +2226,7 @@ int RunDumpModes(ModeContext& mc) {
         {"find hud",        opt.find_hud_mode,                &ModeFindHud},
         {"dialog map",      opt.dialog_map_mode,              &ModeDialogMap},
         {"render gates",    !opt.gates_substr.empty(),        &ModeRenderGates},
+        {"scan dodge",      opt.scan_dodge_mode,              &ModeScanDodge},
     };
     for (const Mode& mode : modes) {
         if (!mode.selected) continue;

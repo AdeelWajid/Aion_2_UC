@@ -90,7 +90,7 @@ struct Config {
     // size the user picked. Off, esp_font_px is the literal pixel size on every client.
     bool esp_font_auto = true;
     int menu_font_px = 16; // font em height for the menu
-    std::string font_face = "Segoe UI";
+    std::string font_face = "Segoe UI Semibold";
     bool font_bold = false;
     bool text_shadow = true;  // 1px black drop shadow behind labels
 
@@ -195,6 +195,28 @@ struct Config {
     int color_self_bg = 0x0A0A10;
     int color_self_hp = 0xE05050;
     int color_self_mp = 0x5080E0;
+
+    // Auto dodge (experimental): sends auto_dodge_vk to the game on a trigger. Off by default.
+    // Trigger 1 = rising edge on bHpDangerAlert (low-HP panic, not attack telegraph timing).
+    // Trigger 2 is reserved for telegraph/block-window detection once RE lands.
+    bool auto_dodge = false;
+    int auto_dodge_vk = 0xA0;  // VK_LSHIFT — use 0xA0 for Left Shift, not 0x10 (generic Shift)
+    int auto_dodge_move_vk = 0x57;  // VK_W — AION2 dodge is directional (Shift + WASD); 0 = shift only
+    // 0=auto (FakerInput, then Interception, then SendInput), 1=SendInput, 2=Interception, 3=FakerInput
+    int auto_dodge_input = 0;
+    int auto_dodge_cooldown_ms = 650;
+    // 0=off 1=hp 2=telegraph edge 3=hp or telegraph edge
+    int auto_dodge_trigger = 3;
+    double auto_dodge_range_m = 18.0;
+    int auto_dodge_scan_period_ms = 120;
+    bool auto_dodge_projectiles = true;
+    bool auto_dodge_ui_objects = false;
+    bool auto_dodge_anim_flags = true;
+    std::string auto_dodge_class_hints =
+        "Telegraph,Dodge,BlockWindow,Counter,Parry,Evade,Warning,HitZone";
+    std::string auto_dodge_anim_props =
+        "bDodgeWindow,bEvadeWindow,bCounterWindow,bParryWindow,bAttackWarning,bSkillWarning,"
+        "bHitWarning";
 
     // User class lists (comma separated substrings) - see ClassRules.
     std::string list_player, list_npc, list_pet, list_monster, list_item,
@@ -356,6 +378,19 @@ struct Config {
         add("self_vitals_corner", I(self_vitals_corner));
         add("self_vitals_width", I(self_vitals_width));
         add("self_vitals_margin_px", I(self_vitals_margin_px));
+        add("auto_dodge", B(auto_dodge));
+        add("auto_dodge_vk", I(auto_dodge_vk));
+        add("auto_dodge_move_vk", I(auto_dodge_move_vk));
+        add("auto_dodge_input", I(auto_dodge_input));
+        add("auto_dodge_cooldown_ms", I(auto_dodge_cooldown_ms));
+        add("auto_dodge_trigger", I(auto_dodge_trigger));
+        add("auto_dodge_range_m", D(auto_dodge_range_m));
+        add("auto_dodge_scan_period_ms", I(auto_dodge_scan_period_ms));
+        add("auto_dodge_projectiles", B(auto_dodge_projectiles));
+        add("auto_dodge_ui_objects", B(auto_dodge_ui_objects));
+        add("auto_dodge_anim_flags", B(auto_dodge_anim_flags));
+        add("auto_dodge_class_hints", SingleLine(auto_dodge_class_hints));
+        add("auto_dodge_anim_props", SingleLine(auto_dodge_anim_props));
         add("color_self_bg", C(color_self_bg));
         add("color_self_hp", C(color_self_hp));
         add("color_self_mp", C(color_self_mp));
@@ -528,6 +563,23 @@ struct Config {
             else if (k == "self_vitals_corner") self_vitals_corner = std::atoi(v.c_str());
             else if (k == "self_vitals_width") self_vitals_width = std::atoi(v.c_str());
             else if (k == "self_vitals_margin_px") self_vitals_margin_px = std::atoi(v.c_str());
+            else if (k == "auto_dodge") auto_dodge = Bool(v);
+            else if (k == "auto_dodge_vk") {
+                auto_dodge_vk = std::atoi(v.c_str());
+                if (auto_dodge_vk == 0x10) auto_dodge_vk = 0xA0;
+            }
+            else if (k == "auto_dodge_move_vk") auto_dodge_move_vk = std::atoi(v.c_str());
+            else if (k == "auto_dodge_input") auto_dodge_input = std::atoi(v.c_str());
+            else if (k == "auto_dodge_cooldown_ms") auto_dodge_cooldown_ms = std::atoi(v.c_str());
+            else if (k == "auto_dodge_trigger") auto_dodge_trigger = std::atoi(v.c_str());
+            else if (k == "auto_dodge_range_m") auto_dodge_range_m = std::atof(v.c_str());
+            else if (k == "auto_dodge_scan_period_ms")
+                auto_dodge_scan_period_ms = std::atoi(v.c_str());
+            else if (k == "auto_dodge_projectiles") auto_dodge_projectiles = Bool(v);
+            else if (k == "auto_dodge_ui_objects") auto_dodge_ui_objects = Bool(v);
+            else if (k == "auto_dodge_anim_flags") auto_dodge_anim_flags = Bool(v);
+            else if (k == "auto_dodge_class_hints") auto_dodge_class_hints = v;
+            else if (k == "auto_dodge_anim_props") auto_dodge_anim_props = v;
             else if (k == "list_player") list_player = v;
             else if (k == "list_npc") list_npc = v;
             else if (k == "list_pet") list_pet = v;

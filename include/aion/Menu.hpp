@@ -47,6 +47,13 @@ struct MenuStats {
     int targets = 0;
     // Name table: how many labels are known, and how many rules are in force.
     int names_learned = 0, names_forced = 0, names_hidden = 0;
+    unsigned auto_dodge_fires = 0;
+    int auto_dodge_ms_since = -1;
+    const char* auto_dodge_last = nullptr;
+    int auto_dodge_proj = 0;
+    int auto_dodge_ui = 0;
+    int auto_dodge_anim = 0;
+    const char* auto_dodge_input = nullptr;
 };
 
 // One actor the overlay has seen, for CONFIG's picker: the label the user recognises, the model
@@ -100,6 +107,7 @@ public:
     std::function<void()> on_save_ini;
     std::function<void()> on_reload_ini;
     std::function<void()> on_dump_classes;
+    std::function<void()> on_auto_dodge_test;
     // A list, a class pattern, a colour or a name rule changed: the classifier has to be rebuilt
     // from Config.
     std::function<void()> on_rules_changed;
@@ -123,6 +131,7 @@ private:
     void SectionNames();
     void SectionClassPatterns();
     void SectionDisplay();
+    void SectionAutoDodge();
     // Writes the ticked rows into the chosen list, as patterns.
     void AddSelectedActors();
 

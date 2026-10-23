@@ -4,6 +4,7 @@
 // projection, entity cache) against the running process. No writes, no injection.
 #include <algorithm>
 #include <cstdio>
+#include <cstdlib>
 #include <map>
 #include <string>
 
@@ -13,6 +14,7 @@
 #include "aion/EntityCache.hpp"
 #include "aion/GObjects.hpp"
 #include "aion/Logger.hpp"
+#include "aion/LiveAttach.hpp"
 #include "aion/Memory.hpp"
 #include "aion/NamePool.hpp"
 #include "aion/Offsets.hpp"
@@ -56,22 +58,35 @@ static bool GameClientSize(std::uint32_t, int&, int&) { return false; }
 using namespace aion;
 
 int main(int argc, char** argv) {
-    Logger::Instance().SetLevel(argc > 1 && std::string(argv[1]) == "-v" ? LogLevel::Debug
-                                                                          : LogLevel::Info);
-    const std::uint32_t pid = ExternalMemory::FindPidByName(L"AION2.exe");
-    if (!pid) {
-        AION_ERROR("AION2.exe not running");
-        return 1;
+    bool verify_only = false;
+    int wait_seconds = 60;
+    bool verbose = false;
+    for (int i = 1; i < argc; ++i) {
+        const std::string a = argv[i];
+        if (a == "-v" || a == "--verbose") verbose = true;
+        else if (a == "--verify") verify_only = true;
+        else if ((a == "--wait" || a == "--wait-seconds") && i + 1 < argc)
+            wait_seconds = std::max(0, atoi(argv[++i]));
     }
-    ExternalMemory mem;
-    if (!mem.Attach(pid)) return 2;
-    AION_INFO("attached pid=%u base=0x%llX", pid, (unsigned long long)mem.module_base());
+    Logger::Instance().SetLevel(verbose ? LogLevel::Debug : LogLevel::Info);
 
+    LiveAttachOptions opt;
+    opt.wait_ms = wait_seconds * 1000;
+    ExternalMemory mem;
     Sdk sdk;
-    if (!sdk.Init(&mem)) {
-        AION_ERROR("Sdk init failed");
+    const std::uint32_t pid = AttachToLiveClient(mem, sdk, opt);
+    if (!pid) {
+        AION_ERROR("no live client with runtime objects");
+        DiagnoseLiveAttachFailure(opt);
         return 3;
     }
+    AION_INFO("attached pid=%u base=0x%llX", pid, (unsigned long long)mem.module_base());
+    sdk.VerifyOffsets();
+    if (!sdk.RuntimeGlobalsValidated()) {
+        AION_ERROR("compiled globals did not validate on this client");
+        if (verify_only) return 4;
+    }
+    if (verify_only) return sdk.RuntimeGlobalsValidated() ? 0 : 4;
 
     // ---- NamePool -----------------------------------------------------------
     std::printf("%s", aion::SectionForStdio("name pool").c_str());

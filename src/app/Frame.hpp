@@ -34,6 +34,8 @@ class ImGuiLayer;
 class D3D11Overlay;
 class CameraExtractor;
 class Projection;
+class AutoDodge;
+class Reflection;
 
 namespace app {
 
@@ -49,6 +51,8 @@ struct FrameContext {
     EntityCache& cache;
     NameTable& names;
     Menu& menu;
+    AutoDodge& auto_dodge;
+    Reflection& refl;
     ImGuiLayer& imgui;
     D3D11Overlay& gfx;
     HWND overlay;
